@@ -32,7 +32,7 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./
 
 # Expose the desired port (if the server binds to a port)
-EXPOSE 8080
+EXPOSE 3231
 
 # Define the command to run the application
 CMD ["node", "build/index.js"]
