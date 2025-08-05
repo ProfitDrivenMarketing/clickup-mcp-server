@@ -209,10 +209,10 @@ export function startSSEServer() {
         }
       });
 
-      console.log(`✅ ClickUp MCP Server started on http://127.0.0.1:${PORT}`);
-      console.log(`📡 Streamable HTTP endpoint: http://127.0.0.1:${PORT}/mcp`);
-      console.log(`🔄 Legacy SSE endpoint: http://127.0.0.1:${PORT}/sse`);
-      console.log(`❤️  Health check: http://127.0.0.1:${PORT}/health`);
+      console.log(`✅ ClickUp MCP Server started on http://0.0.0.0:${PORT}`);
+      console.log(`📡 Streamable HTTP endpoint: http://0.0.0.0:${PORT}/mcp`);
+      console.log(`🔄 Legacy SSE endpoint: http://0.0.0.0:${PORT}/sse`);
+      console.log(`❤️ Health check: http://0.0.0.0:${PORT}/health`);
 
       if (configuration.enableHttps) {
         console.log(`⚠️  HTTP server running alongside HTTPS - consider disabling HTTP in production`);
