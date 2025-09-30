@@ -157,7 +157,6 @@ export class TaskServiceSearch {
       (this.core as any).logOperation('getWorkspaceTasks', { filters });
 
       const params = (this.core as any).buildTaskFilterParams(filters);
-      console.log('🔍 ClickUp API Request:', { url: `/team/${(this.core as any).teamId}/task`, params: JSON.stringify(params, null, 2) });
       const response = await (this.core as any).makeRequest(async () => {
         return await (this.core as any).client.get(`/team/${(this.core as any).teamId}/task`, {
           params
@@ -227,7 +226,6 @@ export class TaskServiceSearch {
       };
     } catch (error) {
       (this.core as any).logOperation('getWorkspaceTasks', { error: error.message, status: error.response?.status });
-      console.log('❌ ClickUp API Error Response:', error.response?.data);
       throw (this.core as any).handleError(error, 'Failed to get workspace tasks');
     }
   }
