@@ -39,8 +39,8 @@ const bulkService = new BulkService(taskService);
 // Create a logger instance for task handlers
 const logger = new Logger('TaskHandlers');
 
-// Token limit constant for workspace tasks
-const WORKSPACE_TASKS_TOKEN_LIMIT = 50000;
+// Token limit constant for workspace tasks - AGGRESSIVE OPTIMIZATION
+const WORKSPACE_TASKS_TOKEN_LIMIT = 5000;
 
 // Cache for task context between sequential operations
 const taskContextCache = new Map<string, { id: string, timestamp: number }>();
@@ -621,8 +621,6 @@ export async function createTaskHandler(params) {
   return await taskService.createTask(listId, taskData);
 }
 
-
-
 /**
  * Handler for updating a task
  */
@@ -780,17 +778,37 @@ function wouldExceedTokenLimit(response: any): boolean {
 }
 
 /**
- * Handler for getting workspace tasks with filtering
+ * Handler for getting workspace tasks with AGGRESSIVE token limiting
  */
 export async function getWorkspaceTasksHandler(
   taskService: TaskService,
   params: Record<string, any>
 ): Promise<Record<string, any>> {
   try {
+    // STEP 1: Force token-efficient parameters
+    const optimizedParams = {
+      ...params,
+      detail_level: "summary",        // Always use summary mode
+      subtasks: false,               // No subtasks
+      include_closed: false,         // No closed tasks
+      include_archived_lists: false, // No archived
+      page: 0,                       // First page only
+      // Force recent date filter (last 7 days) if not provided
+      date_updated_gt: params.date_updated_gt || (Date.now() - (7 * 24 * 60 * 60 * 1000))
+    };
+
+    // STEP 2: Limit list_ids to prevent overload
+    if (optimizedParams.list_ids && optimizedParams.list_ids.length > 3) {
+      optimizedParams.list_ids = optimizedParams.list_ids.slice(0, 3);
+      logger.warn('Limited list_ids to 3 for token efficiency');
+    }
+
+    logger.info('🔄 getWorkspaceTasksHandler with aggressive optimization');
+
     // Require at least one filter parameter
     const hasFilter = [
       'tags',
-      'list_ids',
+      'list_ids', 
       'folder_ids',
       'space_ids',
       'statuses',
@@ -801,216 +819,111 @@ export async function getWorkspaceTasksHandler(
       'date_updated_lt',
       'due_date_gt',
       'due_date_lt'
-    ].some(key => params[key] !== undefined);
+    ].some(key => optimizedParams[key] !== undefined);
 
     if (!hasFilter) {
-      throw new Error('At least one filter parameter is required (tags, list_ids, folder_ids, space_ids, statuses, assignees, or date filters)');
+      throw new Error('At least one filter parameter is required');
     }
 
-    // Check if list_ids are provided for enhanced filtering via Views API
-    if (params.list_ids && params.list_ids.length > 0) {
-      logger.info('Using Views API for enhanced list filtering', {
-        listIds: params.list_ids,
-        listCount: params.list_ids.length
-      });
+    // STEP 3: Get tasks with aggressive filtering
+    const filters: ExtendedTaskFilters = {
+      tags: optimizedParams.tags,
+      list_ids: optimizedParams.list_ids,
+      folder_ids: optimizedParams.folder_ids,
+      space_ids: optimizedParams.space_ids,
+      statuses: optimizedParams.statuses,
+      include_closed: false,            // Force no closed
+      include_archived_lists: false,    // Force no archived
+      archived: false,                  // Force no archived
+      order_by: optimizedParams.order_by,
+      reverse: optimizedParams.reverse,
+      due_date_gt: optimizedParams.due_date_gt,
+      due_date_lt: optimizedParams.due_date_lt,
+      date_created_gt: optimizedParams.date_created_gt,
+      date_created_lt: optimizedParams.date_created_lt,
+      date_updated_gt: optimizedParams.date_updated_gt,
+      date_updated_lt: optimizedParams.date_updated_lt,
+      assignees: optimizedParams.assignees,
+      page: 0,                          // Force first page only
+      detail_level: 'summary',          // Force summary mode
+      subtasks: false,                  // Force no subtasks
+      custom_fields: optimizedParams.custom_fields
+    };
 
-      // Warning for broad queries
-      const hasOnlyListIds = Object.keys(params).filter(key =>
-        params[key] !== undefined && key !== 'list_ids' && key !== 'detail_level'
-      ).length === 0;
+    // STEP 4: Get response and aggressively filter
+    const response = await taskService.getWorkspaceTasks(filters);
+    
+    if (response.tasks) {
+      logger.info(`📊 Original response: ${response.tasks.length} tasks`);
+      
+      // STEP 5: Hard limit to 30 tasks maximum
+      const limitedTasks = response.tasks.slice(0, 30);
+      
+      // STEP 6: Strip to absolute essentials only
+      const ultraLightTasks = limitedTasks.map(task => ({
+        id: task.id,
+        name: task.name?.substring(0, 80) || '', // Truncate long names
+        status: task.status?.status || task.status || '',
+        url: task.url || '',
+        priority: task.priority?.priority || null,
+        list: {
+          id: task.list?.id || '',
+          name: task.list?.name?.substring(0, 40) || ''
+        },
+        due_date: task.due_date || null,
+        tags: (task.tags || []).slice(0, 3).map(t => t.name || t).filter(Boolean)
+        // STRIPPED: description, custom_fields, assignees, attachments, time_entries, etc.
+      }));
 
-      if (hasOnlyListIds && params.list_ids.length > 5) {
-        logger.warn('Broad query detected: many lists with no additional filters', {
-          listCount: params.list_ids.length,
-          recommendation: 'Consider adding additional filters (tags, statuses, assignees, etc.) for better performance'
-        });
-      }
-
-      // Use Views API for enhanced list filtering
-      let allTasks: ClickUpTask[] = [];
-      const processedTaskIds = new Set<string>();
-
-      // Create promises for concurrent fetching
-      const fetchPromises = params.list_ids.map(async (listId: string) => {
-        try {
-          // Get the default list view ID
-          const viewId = await taskService.getListViews(listId);
-
-          if (!viewId) {
-            logger.warn(`No default view found for list ${listId}, skipping`);
-            return [];
-          }
-
-          // Extract filters supported by the Views API
-          const supportedFilters: ExtendedTaskFilters = {
-            subtasks: params.subtasks,
-            include_closed: params.include_closed,
-            archived: params.archived,
-            order_by: params.order_by,
-            reverse: params.reverse,
-            page: params.page,
-            statuses: params.statuses,
-            assignees: params.assignees,
-            date_created_gt: params.date_created_gt,
-            date_created_lt: params.date_created_lt,
-            date_updated_gt: params.date_updated_gt,
-            date_updated_lt: params.date_updated_lt,
-            due_date_gt: params.due_date_gt,
-            due_date_lt: params.due_date_lt,
-            custom_fields: params.custom_fields
-          };
-
-          // Get tasks from the view
-          const tasksFromView = await taskService.getTasksFromView(viewId, supportedFilters);
-          return tasksFromView;
-
-        } catch (error) {
-          logger.error(`Failed to get tasks from list ${listId}`, { error: error.message });
-          return []; // Continue with other lists even if one fails
-        }
-      });
-
-      // Execute all fetches concurrently
-      const taskArrays = await Promise.all(fetchPromises);
-
-      // Aggregate tasks and remove duplicates
-      for (const tasks of taskArrays) {
-        for (const task of tasks) {
-          if (!processedTaskIds.has(task.id)) {
-            allTasks.push(task);
-            processedTaskIds.add(task.id);
-          }
-        }
-      }
-
-      logger.info('Aggregated tasks from Views API', {
-        totalTasks: allTasks.length,
-        uniqueTasks: processedTaskIds.size
-      });
-
-      // Apply client-side filtering for unsupported filters
-      if (params.tags && params.tags.length > 0) {
-        allTasks = allTasks.filter(task =>
-          params.tags.every((tag: string) =>
-            task.tags.some(t => t.name === tag)
-          )
-        );
-        logger.debug('Applied client-side tag filtering', {
-          tags: params.tags,
-          remainingTasks: allTasks.length
-        });
-      }
-
-      if (params.folder_ids && params.folder_ids.length > 0) {
-        allTasks = allTasks.filter(task =>
-          task.folder && params.folder_ids.includes(task.folder.id)
-        );
-        logger.debug('Applied client-side folder filtering', {
-          folderIds: params.folder_ids,
-          remainingTasks: allTasks.length
-        });
-      }
-
-      if (params.space_ids && params.space_ids.length > 0) {
-        allTasks = allTasks.filter(task =>
-          params.space_ids.includes(task.space.id)
-        );
-        logger.debug('Applied client-side space filtering', {
-          spaceIds: params.space_ids,
-          remainingTasks: allTasks.length
-        });
-      }
-
-      // Check token limit and format response
-      const shouldUseSummary = params.detail_level === 'summary' || wouldExceedTokenLimit({ tasks: allTasks });
-
-      if (shouldUseSummary) {
-        logger.info('Using summary format for Views API response', {
-          totalTasks: allTasks.length,
-          reason: params.detail_level === 'summary' ? 'requested' : 'token_limit'
-        });
-
-        return {
-          summaries: allTasks.map(task => ({
-            id: task.id,
-            name: task.name,
-            status: task.status.status,
-            list: {
-              id: task.list.id,
-              name: task.list.name
-            },
-            due_date: task.due_date,
-            url: task.url,
-            priority: task.priority?.priority || null,
-            tags: task.tags.map(tag => ({
-              name: tag.name,
-              tag_bg: tag.tag_bg,
-              tag_fg: tag.tag_fg
-            }))
-          })),
-          total_count: allTasks.length,
-          has_more: false,
-          next_page: 0
-        };
-      }
+      logger.info(`✅ Token-optimized response: ${ultraLightTasks.length} tasks`);
+      logger.info(`📉 Estimated size: ${JSON.stringify(ultraLightTasks).length} chars`);
 
       return {
-        tasks: allTasks,
-        total_count: allTasks.length,
-        has_more: false,
-        next_page: 0
+        tasks: ultraLightTasks,
+        total_count: Math.min(response.total_count || 0, 30),
+        has_more: false, // Always false to prevent further requests
+        next_page: 0,
+        _optimization_note: "Response limited to 30 tasks with essential fields only for token efficiency"
       };
     }
 
-    // Fallback to existing workspace-wide task retrieval when list_ids are not provided
-    logger.info('Using standard workspace task retrieval');
+    // STEP 7: Handle summary responses
+    if (response.summaries) {
+      const limitedSummaries = response.summaries.slice(0, 30).map(summary => ({
+        id: summary.id,
+        name: summary.name?.substring(0, 80) || '',
+        status: summary.status || '',
+        url: summary.url || '',
+        list: {
+          id: summary.list?.id || '',
+          name: summary.list?.name?.substring(0, 40) || ''
+        },
+        due_date: summary.due_date || null,
+        priority: summary.priority || null,
+        tags: (summary.tags || []).slice(0, 3).map(t => t.name || t).filter(Boolean)
+      }));
 
-    const filters: ExtendedTaskFilters = {
-      tags: params.tags,
-      list_ids: params.list_ids,
-      folder_ids: params.folder_ids,
-      space_ids: params.space_ids,
-      statuses: params.statuses,
-      include_closed: params.include_closed,
-      include_archived_lists: params.include_archived_lists,
-      include_closed_lists: params.include_closed_lists,
-      archived: params.archived,
-      order_by: params.order_by,
-      reverse: params.reverse,
-      due_date_gt: params.due_date_gt,
-      due_date_lt: params.due_date_lt,
-      date_created_gt: params.date_created_gt,
-      date_created_lt: params.date_created_lt,
-      date_updated_gt: params.date_updated_gt,
-      date_updated_lt: params.date_updated_lt,
-      assignees: params.assignees,
-      page: params.page,
-      detail_level: params.detail_level || 'detailed',
-      subtasks: params.subtasks,
-      include_subtasks: params.include_subtasks,
-      include_compact_time_entries: params.include_compact_time_entries,
-      custom_fields: params.custom_fields
-    };
+      logger.info(`✅ Token-optimized summaries: ${limitedSummaries.length} items`);
 
-    // Get tasks with adaptive response format support
-    const response = await taskService.getWorkspaceTasks(filters);
-
-    // Check token limit at handler level
-    if (params.detail_level !== 'summary' && wouldExceedTokenLimit(response)) {
-      logger.info('Response would exceed token limit, fetching summary format instead');
-
-      // Refetch with summary format
-      const summaryResponse = await taskService.getWorkspaceTasks({
-        ...filters,
-        detail_level: 'summary'
-      });
-
-      return summaryResponse;
+      return {
+        summaries: limitedSummaries,
+        total_count: Math.min(response.total_count || 0, 30),
+        has_more: false,
+        next_page: 0,
+        _optimization_note: "Response limited to 30 summaries for token efficiency"
+      };
     }
 
-    // Return the response without adding the redundant _note field
-    return response;
+    // Empty response
+    return {
+      tasks: [],
+      total_count: 0,
+      has_more: false,
+      next_page: 0
+    };
+
   } catch (error) {
+    logger.error('❌ getWorkspaceTasksHandler error:', error.message);
     throw new Error(`Failed to get workspace tasks: ${error.message}`);
   }
 }
@@ -1132,4 +1045,4 @@ export async function deleteTaskHandler(params) {
   const taskId = await getTaskId(params.taskId, params.taskName, params.listName);
   await taskService.deleteTask(taskId);
   return true;
-} 
+}
