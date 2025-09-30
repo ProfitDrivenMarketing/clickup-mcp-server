@@ -117,6 +117,7 @@ export class TaskServiceCore extends BaseClickUpService {
       filters.tags.forEach(tag => params.append('tags[]', tag));
     }
     if (filters.list_ids && filters.list_ids.length > 0) {
+      console.log('🐛 list_ids in filters:', filters.list_ids, 'Type:', Array.isArray(filters.list_ids), 'Length:', filters.list_ids?.length);
       filters.list_ids.forEach(id => params.append('list_ids[]', id));
     }
     if (filters.folder_ids && filters.folder_ids.length > 0) {
