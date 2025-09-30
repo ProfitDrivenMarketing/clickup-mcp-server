@@ -787,6 +787,7 @@ export async function getWorkspaceTasksHandler(
 ): Promise<Record<string, any>> {
   try {
     // STEP 1: Apply token-efficient defaults while respecting user parameters
+    console.log('📥 Handler received params:', JSON.stringify(params, null, 2));
     const optimizedParams: Record<string, any> = {
       detail_level: params.detail_level || "summary",  // Default to summary
       subtasks: params.subtasks !== undefined ? params.subtasks : false,  // Respect user choice
