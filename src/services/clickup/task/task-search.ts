@@ -156,14 +156,27 @@ export class TaskServiceSearch {
     try {
       (this.core as any).logOperation('getWorkspaceTasks', { filters });
 
-      const params = (this.core as any).buildTaskFilterParams(filters);
-      const response = await (this.core as any).makeRequest(async () => {
-        return await (this.core as any).client.get(`/team/${(this.core as any).teamId}/task`, {
-          params
-        });
-      });
+      let tasks: any[] = [];
 
-      const tasks = response.data.tasks;
+      // If list_ids are provided, use the /list/{listId}/task endpoint for each list
+      // This is more reliable than the /team/{teamId}/task?list_ids[]= approach
+      if (filters.list_ids && filters.list_ids.length > 0) {
+        // Fetch tasks from each specified list
+        const listTaskPromises = filters.list_ids.map(listId =>
+          (this.core as any).getTasks(listId, filters)
+        );
+        const listTasksArrays = await Promise.all(listTaskPromises);
+        tasks = listTasksArrays.flat();
+      } else {
+        // No list_ids specified, use team endpoint
+        const params = (this.core as any).buildTaskFilterParams(filters);
+        const response = await (this.core as any).makeRequest(async () => {
+          return await (this.core as any).client.get(`/team/${(this.core as any).teamId}/task`, {
+            params
+          });
+        });
+        tasks = response.data.tasks;
+      }
       const totalCount = tasks.length; // Note: This is just the current page count
       const hasMore = totalCount === 100; // ClickUp returns max 100 tasks per page
       const nextPage = (filters.page || 0) + 1;
