@@ -174,7 +174,7 @@ export function startSSEServer() {
     res.json({
       status: 'healthy',
       timestamp: new Date().toISOString(),
-      version: '0.8.3',
+      version: '0.8.5',
       security: {
         featuresEnabled: configuration.enableSecurityFeatures,
         originValidation: configuration.enableOriginValidation,
