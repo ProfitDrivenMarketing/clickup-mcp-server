@@ -39,8 +39,9 @@ const bulkService = new BulkService(taskService);
 // Create a logger instance for task handlers
 const logger = new Logger('TaskHandlers');
 
-// Token limit constant for workspace tasks - AGGRESSIVE OPTIMIZATION
+// Token limit constant for workspace tasks - ULTRA AGGRESSIVE OPTIMIZATION
 const WORKSPACE_TASKS_TOKEN_LIMIT = 5000;
+const MAX_TASKS_RETURNED = 15; // Reduced from 30 to 15 for token efficiency
 
 // Cache for task context between sequential operations
 const taskContextCache = new Map<string, { id: string, timestamp: number }>();
@@ -856,23 +857,21 @@ export async function getWorkspaceTasksHandler(
     // Type-safe response handling
     if ('tasks' in response && response.tasks) {
       logger.info(`📊 Original response: ${response.tasks.length} tasks`);
-      
-      // STEP 5: Hard limit to 30 tasks maximum
-      const limitedTasks = response.tasks.slice(0, 30);
-      
-      // STEP 6: Strip to absolute essentials only
+
+      // STEP 5: Hard limit to MAX_TASKS_RETURNED
+      const limitedTasks = response.tasks.slice(0, MAX_TASKS_RETURNED);
+
+      // STEP 6: Strip to absolute bare minimum - only essential fields
       const ultraLightTasks = limitedTasks.map(task => ({
         id: task.id,
-        name: task.name?.substring(0, 80) || '', // Truncate long names
+        name: task.name?.substring(0, 50) || '', // Reduced from 80 to 50
         status: task.status?.status || task.status || '',
         url: task.url || '',
-        priority: task.priority?.priority || null,
         list: {
           id: task.list?.id || '',
-          name: task.list?.name?.substring(0, 40) || ''
-        },
-        due_date: task.due_date || null,
-        tags: (task.tags || []).slice(0, 3).map(t => (typeof t === 'object' && t.name) ? t.name : t).filter(Boolean)
+          name: task.list?.name?.substring(0, 25) || '' // Reduced from 40 to 25
+        }
+        // REMOVED: priority, due_date, tags - use getTask for details
         // STRIPPED: description, custom_fields, assignees, attachments, time_entries, etc.
       }));
 
@@ -881,37 +880,33 @@ export async function getWorkspaceTasksHandler(
 
       return {
         tasks: ultraLightTasks,
-        total_count: Math.min(response.total_count || 0, 30),
-        has_more: false, // Always false to prevent further requests
-        next_page: 0,
-        _optimization_note: "Response limited to 30 tasks with essential fields only for token efficiency"
+        total_count: Math.min(response.total_count || 0, MAX_TASKS_RETURNED),
+        has_more: (response.tasks.length > MAX_TASKS_RETURNED),
+        _optimization_note: `Response limited to ${MAX_TASKS_RETURNED} tasks with minimal fields. Use getTask for full details.`
       };
     }
 
     // STEP 7: Handle summary responses
     if ('summaries' in response && response.summaries) {
-      const limitedSummaries = response.summaries.slice(0, 30).map(summary => ({
+      const limitedSummaries = response.summaries.slice(0, MAX_TASKS_RETURNED).map(summary => ({
         id: summary.id,
-        name: summary.name?.substring(0, 80) || '',
+        name: summary.name?.substring(0, 50) || '', // Reduced from 80 to 50
         status: summary.status || '',
         url: summary.url || '',
         list: {
           id: summary.list?.id || '',
-          name: summary.list?.name?.substring(0, 40) || ''
-        },
-        due_date: summary.due_date || null,
-        priority: summary.priority || null,
-        tags: (summary.tags || []).slice(0, 3).map(t => (typeof t === 'object' && t.name) ? t.name : t).filter(Boolean)
+          name: summary.list?.name?.substring(0, 25) || '' // Reduced from 40 to 25
+        }
+        // REMOVED: due_date, priority, tags - use getTask for details
       }));
 
       logger.info(`✅ Token-optimized summaries: ${limitedSummaries.length} items`);
 
       return {
         summaries: limitedSummaries,
-        total_count: Math.min(response.total_count || 0, 30),
-        has_more: false,
-        next_page: 0,
-        _optimization_note: "Response limited to 30 summaries for token efficiency"
+        total_count: Math.min(response.total_count || 0, MAX_TASKS_RETURNED),
+        has_more: (response.summaries.length > MAX_TASKS_RETURNED),
+        _optimization_note: `Response limited to ${MAX_TASKS_RETURNED} summaries. Use getTask for full details.`
       };
     }
 
