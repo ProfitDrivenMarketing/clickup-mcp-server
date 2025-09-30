@@ -785,8 +785,8 @@ export async function getWorkspaceTasksHandler(
   params: Record<string, any>
 ): Promise<Record<string, any>> {
   try {
-    // STEP 1: Force token-efficient parameters
-    const optimizedParams = {
+    // STEP 1: Force token-efficient parameters - keep all original params
+    const optimizedParams: Record<string, any> = {
       ...params,
       detail_level: "summary",        // Always use summary mode
       subtasks: false,               // No subtasks
@@ -798,7 +798,7 @@ export async function getWorkspaceTasksHandler(
     };
 
     // STEP 2: Limit list_ids to prevent overload
-    if (optimizedParams.list_ids && optimizedParams.list_ids.length > 3) {
+    if (optimizedParams.list_ids && Array.isArray(optimizedParams.list_ids) && optimizedParams.list_ids.length > 3) {
       optimizedParams.list_ids = optimizedParams.list_ids.slice(0, 3);
       logger.warn('Limited list_ids to 3 for token efficiency');
     }
@@ -853,7 +853,8 @@ export async function getWorkspaceTasksHandler(
     // STEP 4: Get response and aggressively filter
     const response = await taskService.getWorkspaceTasks(filters);
     
-    if (response.tasks) {
+    // Type-safe response handling
+    if ('tasks' in response && response.tasks) {
       logger.info(`📊 Original response: ${response.tasks.length} tasks`);
       
       // STEP 5: Hard limit to 30 tasks maximum
@@ -871,7 +872,7 @@ export async function getWorkspaceTasksHandler(
           name: task.list?.name?.substring(0, 40) || ''
         },
         due_date: task.due_date || null,
-        tags: (task.tags || []).slice(0, 3).map(t => t.name || t).filter(Boolean)
+        tags: (task.tags || []).slice(0, 3).map(t => (typeof t === 'object' && t.name) ? t.name : t).filter(Boolean)
         // STRIPPED: description, custom_fields, assignees, attachments, time_entries, etc.
       }));
 
@@ -888,7 +889,7 @@ export async function getWorkspaceTasksHandler(
     }
 
     // STEP 7: Handle summary responses
-    if (response.summaries) {
+    if ('summaries' in response && response.summaries) {
       const limitedSummaries = response.summaries.slice(0, 30).map(summary => ({
         id: summary.id,
         name: summary.name?.substring(0, 80) || '',
@@ -900,7 +901,7 @@ export async function getWorkspaceTasksHandler(
         },
         due_date: summary.due_date || null,
         priority: summary.priority || null,
-        tags: (summary.tags || []).slice(0, 3).map(t => t.name || t).filter(Boolean)
+        tags: (summary.tags || []).slice(0, 3).map(t => (typeof t === 'object' && t.name) ? t.name : t).filter(Boolean)
       }));
 
       logger.info(`✅ Token-optimized summaries: ${limitedSummaries.length} items`);
@@ -922,7 +923,7 @@ export async function getWorkspaceTasksHandler(
       next_page: 0
     };
 
-  } catch (error) {
+  } catch (error: any) {
     logger.error('❌ getWorkspaceTasksHandler error:', error.message);
     throw new Error(`Failed to get workspace tasks: ${error.message}`);
   }
