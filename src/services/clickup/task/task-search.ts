@@ -161,12 +161,14 @@ export class TaskServiceSearch {
       // If list_ids are provided, use the /list/{listId}/task endpoint for each list
       // This is more reliable than the /team/{teamId}/task?list_ids[]= approach
       if (filters.list_ids && filters.list_ids.length > 0) {
+        console.log('✓ Using /list/{id}/task for list_ids:', filters.list_ids);
         // Fetch tasks from each specified list
         const listTaskPromises = filters.list_ids.map(listId =>
           (this.core as any).getTasks(listId, filters)
         );
         const listTasksArrays = await Promise.all(listTaskPromises);
         tasks = listTasksArrays.flat();
+        console.log('✓ Retrieved', tasks.length, 'tasks from', filters.list_ids.length, 'lists');
       } else {
         // No list_ids specified, use team endpoint
         const params = (this.core as any).buildTaskFilterParams(filters);
@@ -238,6 +240,7 @@ export class TaskServiceSearch {
         next_page: nextPage
       };
     } catch (error) {
+      console.error('✗ getWorkspaceTasks error:', error.message, 'status:', error.response?.status, 'data:', error.response?.data);
       (this.core as any).logOperation('getWorkspaceTasks', { error: error.message, status: error.response?.status });
       throw (this.core as any).handleError(error, 'Failed to get workspace tasks');
     }
