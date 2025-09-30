@@ -41,7 +41,7 @@ const logger = new Logger('TaskHandlers');
 
 // Token limit constant for workspace tasks - ULTRA AGGRESSIVE OPTIMIZATION
 const WORKSPACE_TASKS_TOKEN_LIMIT = 5000;
-const MAX_TASKS_RETURNED = 15; // Reduced from 30 to 15 for token efficiency
+const MAX_TASKS_RETURNED = 10; // Reduced from 15 to 10 for maximum token efficiency
 
 // Cache for task context between sequential operations
 const taskContextCache = new Map<string, { id: string, timestamp: number }>();
@@ -862,18 +862,32 @@ export async function getWorkspaceTasksHandler(
       const limitedTasks = response.tasks.slice(0, MAX_TASKS_RETURNED);
 
       // STEP 6: Strip to absolute bare minimum - only essential fields
-      const ultraLightTasks = limitedTasks.map(task => ({
-        id: task.id,
-        name: task.name?.substring(0, 50) || '', // Reduced from 80 to 50
-        status: task.status?.status || task.status || '',
-        url: task.url || '',
-        list: {
-          id: task.list?.id || '',
-          name: task.list?.name?.substring(0, 25) || '' // Reduced from 40 to 25
+      // Support optional fields parameter for flexible filtering
+      const requestedFields = optimizedParams.fields ? optimizedParams.fields.split(',').map((f: string) => f.trim()) : null;
+
+      const ultraLightTasks = limitedTasks.map(task => {
+        // Base minimal fields (always included)
+        const minimal: any = {
+          id: task.id,
+          name: task.name?.substring(0, 50) || '',
+          status: task.status?.status || task.status || '',
+          url: task.url || '',
+          list: {
+            id: task.list?.id || '',
+            name: task.list?.name?.substring(0, 25) || ''
+          }
+        };
+
+        // If specific fields requested, add them
+        if (requestedFields) {
+          if (requestedFields.includes('priority')) minimal.priority = task.priority?.priority || task.priority;
+          if (requestedFields.includes('due_date')) minimal.due_date = task.due_date;
+          if (requestedFields.includes('assignees')) minimal.assignees = task.assignees?.slice(0, 3).map(a => ({ id: a.id, username: a.username }));
+          if (requestedFields.includes('tags')) minimal.tags = task.tags?.slice(0, 5).map(t => t.name || t);
         }
-        // REMOVED: priority, due_date, tags - use getTask for details
-        // STRIPPED: description, custom_fields, assignees, attachments, time_entries, etc.
-      }));
+
+        return minimal;
+      });
 
       logger.info(`✅ Token-optimized response: ${ultraLightTasks.length} tasks`);
       logger.info(`📉 Estimated size: ${JSON.stringify(ultraLightTasks).length} chars`);
