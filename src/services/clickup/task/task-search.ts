@@ -227,6 +227,7 @@ export class TaskServiceSearch {
       };
     } catch (error) {
       (this.core as any).logOperation('getWorkspaceTasks', { error: error.message, status: error.response?.status });
+      console.log('❌ ClickUp API Error Response:', error.response?.data);
       throw (this.core as any).handleError(error, 'Failed to get workspace tasks');
     }
   }
