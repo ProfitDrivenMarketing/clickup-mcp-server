@@ -786,16 +786,14 @@ export async function getWorkspaceTasksHandler(
   params: Record<string, any>
 ): Promise<Record<string, any>> {
   try {
-    // STEP 1: Force token-efficient parameters - keep all original params
+    // STEP 1: Apply token-efficient defaults while respecting user parameters
     const optimizedParams: Record<string, any> = {
-      ...params,
-      detail_level: "summary",        // Always use summary mode
-      subtasks: false,               // No subtasks
-      include_closed: false,         // No closed tasks
-      include_archived_lists: false, // No archived
-      page: 0,                       // First page only
-      // Force recent date filter (last 7 days) if not provided
-      date_updated_gt: params.date_updated_gt || (Date.now() - (7 * 24 * 60 * 60 * 1000))
+      detail_level: params.detail_level || "summary",  // Default to summary
+      subtasks: params.subtasks !== undefined ? params.subtasks : false,  // Respect user choice
+      include_closed: params.include_closed !== undefined ? params.include_closed : false,  // Respect user choice
+      include_archived_lists: params.include_archived_lists !== undefined ? params.include_archived_lists : false,
+      page: params.page !== undefined ? params.page : 0,
+      ...params  // Keep all other user parameters
     };
 
     // STEP 2: Limit list_ids to prevent overload
@@ -826,16 +824,16 @@ export async function getWorkspaceTasksHandler(
       throw new Error('At least one filter parameter is required');
     }
 
-    // STEP 3: Get tasks with aggressive filtering
+    // STEP 3: Build filters from optimized parameters
     const filters: ExtendedTaskFilters = {
       tags: optimizedParams.tags,
       list_ids: optimizedParams.list_ids,
       folder_ids: optimizedParams.folder_ids,
       space_ids: optimizedParams.space_ids,
       statuses: optimizedParams.statuses,
-      include_closed: false,            // Force no closed
-      include_archived_lists: false,    // Force no archived
-      archived: false,                  // Force no archived
+      include_closed: optimizedParams.include_closed,
+      include_archived_lists: optimizedParams.include_archived_lists,
+      archived: optimizedParams.archived,
       order_by: optimizedParams.order_by,
       reverse: optimizedParams.reverse,
       due_date_gt: optimizedParams.due_date_gt,
@@ -845,9 +843,9 @@ export async function getWorkspaceTasksHandler(
       date_updated_gt: optimizedParams.date_updated_gt,
       date_updated_lt: optimizedParams.date_updated_lt,
       assignees: optimizedParams.assignees,
-      page: 0,                          // Force first page only
-      detail_level: 'summary',          // Force summary mode
-      subtasks: false,                  // Force no subtasks
+      page: optimizedParams.page,
+      detail_level: optimizedParams.detail_level,
+      subtasks: optimizedParams.subtasks,
       custom_fields: optimizedParams.custom_fields
     };
 
