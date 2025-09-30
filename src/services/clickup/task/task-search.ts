@@ -157,6 +157,7 @@ export class TaskServiceSearch {
       (this.core as any).logOperation('getWorkspaceTasks', { filters });
 
       const params = (this.core as any).buildTaskFilterParams(filters);
+      console.log('🔍 ClickUp API Request:', { url: `/team/${(this.core as any).teamId}/task`, params: JSON.stringify(params, null, 2) });
       const response = await (this.core as any).makeRequest(async () => {
         return await (this.core as any).client.get(`/team/${(this.core as any).teamId}/task`, {
           params
